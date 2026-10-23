@@ -10,7 +10,7 @@ mkdir -p "$OUTPUT_DIR" "$TMP_DIR/audio"
 # Folder IDs from your Google Drive setup
 export WALLPAPER_FOLDER_ID="1xbZDP8HXOnfllya7t7120pnNccq5-7h7"
 export AUDIO_FOLDER_ID="1cMseGL3iBVP6y28ouZBbyeVR6sWPtSid"
-export SCRATCHES_FOLDER_ID="1TcLn9ukWAdLCmI0aYyPrtUcog3UnKnmn"
+export SCRATCHES_FOLDER_ID="1TcLn9ukWAdLCml0aYyPrtUcog3UnKnmn"
 export MIN_DURATION=720  # 12 minutes
 export MAX_DURATION=890  # 14 minutes 50 seconds (safe buffer under 15m)
 
@@ -20,7 +20,7 @@ if [ -f "$LOCAL_SCRATCHES" ]; then
     cp "$LOCAL_SCRATCHES" "$TMP_DIR/scratches.mp4"
     export NEED_SCRATCHES_DOWNLOAD="0"
 else
-    echo "☁️ Local $LOCAL_SCRATCHES not found; will fetch from Google Drive..."
+    echo "☁️ Fetching scratches.mp4 from Google Drive..."
     export NEED_SCRATCHES_DOWNLOAD="1"
 fi
 
@@ -74,20 +74,34 @@ download_file(wp["id"], os.path.join(tmp_dir, "wallpaper.jpg"))
 with open(os.path.join(tmp_dir, "wp_name.txt"), "w") as f:
     f.write(os.path.splitext(wp["name"])[0])
 
-# OPTIONAL API CALL: Download scratches.mp4 from Drive if not in repo
+# API CALL 2: Download scratches.mp4 (checks folder first, falls back to global search)
 if need_scratches:
-    scr_res = service.files().list(
-        q=f"'{scratches_folder}' in parents and name = 'scratches.mp4' and trashed=false",
-        pageSize=1,
-        fields="files(id, name)"
-    ).execute()
-    scr_files = scr_res.get("files", [])
+    scr_files = []
+    try:
+        scr_res = service.files().list(
+            q=f"'{scratches_folder}' in parents and name = 'scratches.mp4' and trashed=false",
+            pageSize=1,
+            fields="files(id, name)"
+        ).execute()
+        scr_files = scr_res.get("files", [])
+    except Exception:
+        pass
+
     if not scr_files:
-        raise RuntimeError("❌ scratches.mp4 not found in Google Drive folder!")
+        scr_res = service.files().list(
+            q="name = 'scratches.mp4' and trashed=false",
+            pageSize=1,
+            fields="files(id, name)"
+        ).execute()
+        scr_files = scr_res.get("files", [])
+
+    if not scr_files:
+        raise RuntimeError("❌ scratches.mp4 not found in Google Drive! Make sure the scratches folder is shared with your Service Account.")
+
     print(f"🎞️ Downloading scratches.mp4 ({scr_files[0]['id']})...")
     download_file(scr_files[0]["id"], os.path.join(tmp_dir, "scratches.mp4"))
 
-# API CALL 2: List all audio files in ONE request
+# API CALL 3: List all audio files in ONE request
 aud_res = service.files().list(
     q=f"'{audio_folder}' in parents and (mimeType contains 'audio/' or name contains '.mp3') and trashed=false",
     pageSize=200,
@@ -137,7 +151,7 @@ with open(os.path.join(tmp_dir, "audio_list.txt"), "w") as list_file:
         list_file.write(f"file '{p}'\n")
 EOF
 
-# --- 3. MERGE AUDIO & ADD 2s AUDIO FADE-OUT ---
+# --- 3. MERGE AUDIO & ADD 2s AUDIO FADE IN/OUT ---
 echo "🔊 Step 2: Merging selected audio tracks..."
 RAW_AUDIO="$TMP_DIR/raw_audio.m4a"
 MERGED_AUDIO="$TMP_DIR/merged_audio.m4a"
@@ -157,7 +171,6 @@ echo "⏱️ Final Merged Audio Duration: ${DURATION}s"
 # --- 4. RENDER 16:9 WALLPAPER + SCRATCHES + FADE IN/OUT (<50MB FOR GITHUB) ---
 echo "🎬 Step 3: Blending 16:9 wallpaper with scratches.mp4 & applying fade in/out..."
 
-# Calculate exact segment durations so intro + (N * middle) + outro == DURATION
 read INTRO_DUR MID_DUR NUM_MIDS OUTRO_DUR OUTRO_FADE_START <<< $(python3 -c "
 dur = float('$DURATION')
 intro = 4.0
