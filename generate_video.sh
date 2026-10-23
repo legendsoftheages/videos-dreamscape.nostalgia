@@ -7,39 +7,70 @@ OUTPUT_DIR="./output"
 export ASSETS_DIR="./assets"
 mkdir -p "$OUTPUT_DIR" "$ASSETS_DIR" "$TMP_DIR/audio"
 
-# Folder & File IDs from your Google Drive setup
+# Folder IDs from your Google Drive setup
 export WALLPAPER_FOLDER_ID="1xbZDP8HXOnfllya7t7120pnNccq5-7h7"
 export AUDIO_FOLDER_ID="1cMseGL3iBVP6y28ouZBbyeVR6sWPtSid"
 export SCRATCHES_FOLDER_ID="1TcLn9ukWAdLCml0aYyPrtUcog3UnKnmn"
 export SPOTIFY_FILE_ID="1fIcEuSGsSBaRWO9OsFZYCTcynhMs7XOh"
 export MIN_DURATION=720  # 12 minutes
-export MAX_DURATION=890  # 14 minutes 50 seconds (safe buffer under 15m)
+export MAX_DURATION=890  # 14 minutes 50 seconds
 
-# Check if scratches.mp4 is already saved in the GitHub repo
-if [ -f "$ASSETS_DIR/scratches.mp4" ]; then
-    echo "✅ Using cached $ASSETS_DIR/scratches.mp4 from repo (0 API calls)"
-    export NEED_SCRATCHES_DOWNLOAD="0"
-elif [ -f "./scratches/scratches.mp4" ]; then
-    echo "✅ Using local ./scratches/scratches.mp4 from repo (0 API calls)"
-    cp "./scratches/scratches.mp4" "$ASSETS_DIR/scratches.mp4"
-    export NEED_SCRATCHES_DOWNLOAD="0"
-else
-    echo "☁️ Will fetch scratches.mp4 from Google Drive and save to $ASSETS_DIR/..."
-    export NEED_SCRATCHES_DOWNLOAD="1"
+# --- 2. ASSET CHECK & RANDOM TITLE GENERATION ---
+if [ ! -f "$ASSETS_DIR/titles.txt" ]; then
+    echo "📝 Creating titles.txt with original and new poetic titles..."
+    cat << 'EOF' > "$ASSETS_DIR/titles.txt"
+Those moments felt endless
+Those days were golden
+Life felt gentle and bright
+Time moved like a dream
+Those days taught me love
+Old joys still shine
+Back then felt safe
+Some places feel like the past
+Childhood felt like magic
+Dreams felt bigger then
+Small things meant more
+Back then felt magic
+Life felt calm inside
+Old joys stay forever
+Old days still guide me
+Back then felt honest
+Those moments still glow
+Some faces stay in the heart
+Some days never fade
+Back then felt safer
+Back then felt colorful
+Some nights stay glowing
+Those laughs still ring
+Wish time slowed down
+Those talks lasted hours
+Old days hit the heart
+Memories linger in the dark
+Echoes of a quieter time
+Whispers from the past
+Shadows of golden hours
+When the world stood still
+Finding peace in memories
+Nostalgia hits deep
+Fading light brings comfort
+Where did the time go
+Longing for yesterday
+The quiet after the storm
+Stars looked brighter then
+EOF
 fi
 
-# Check if spotify.png is already saved in the GitHub repo
-if [ -f "$ASSETS_DIR/spotify.png" ]; then
-    echo "✅ Using cached $ASSETS_DIR/spotify.png from repo (0 API calls)"
-    export NEED_SPOTIFY_DOWNLOAD="0"
-else
-    echo "☁️ Will fetch spotify.png from Google Drive and save to $ASSETS_DIR/..."
-    export NEED_SPOTIFY_DOWNLOAD="1"
-fi
+# Pick a completely random title (no tracking)
+SELECTED_TITLE=$(shuf -n 1 "$ASSETS_DIR/titles.txt")
+export SAFE_TITLE=$(echo "$SELECTED_TITLE" | tr ' ' '_')
+echo "🏷️ Selected Title: $SELECTED_TITLE -> $SAFE_TITLE.mp4"
 
-echo "📥 Step 1: Fetching Oldest Wallpaper, Assets & Random Audio (<15m)..."
+if [ -f "$ASSETS_DIR/scratches.mp4" ]; then export NEED_SCRATCHES_DOWNLOAD="0"; else export NEED_SCRATCHES_DOWNLOAD="1"; fi
+if [ -f "$ASSETS_DIR/spotify.png" ]; then export NEED_SPOTIFY_DOWNLOAD="0"; else export NEED_SPOTIFY_DOWNLOAD="1"; fi
 
-# --- 2. PYTHON GOOGLE DRIVE FETCHER (MINIMAL API CALLS) ---
+echo "📥 Step 1: Fetching Oldest Wallpaper & Random Audio (<15m)..."
+
+# --- 3. PYTHON GOOGLE DRIVE FETCHER ---
 python3 - << 'EOF'
 import os, json, random, subprocess
 from google.oauth2 import service_account
@@ -59,7 +90,7 @@ max_dur = float(os.environ["MAX_DURATION"])
 
 sa_info = json.loads(os.environ["GDRIVE_SERVICE_ACCOUNT"])
 creds = service_account.Credentials.from_service_account_info(
-    sa_info, scopes=["https://www.googleapis.com/auth/drive.readonly"]
+    sa_info, scopes=["https://www.googleapis.com/auth/drive"]
 )
 service = build("drive", "v3", credentials=creds)
 
@@ -71,7 +102,7 @@ def download_file(file_id, dest_path):
         while not done:
             _, done = downloader.next_chunk()
 
-# API CALL 1: Get the single oldest wallpaper (createdTime asc)
+# API CALL 1: Get the single oldest wallpaper
 wp_res = service.files().list(
     q=f"'{wallpaper_folder}' in parents and mimeType contains 'image/' and trashed=false",
     orderBy="createdTime asc",
@@ -87,10 +118,11 @@ wp = wp_files[0]
 print(f"🖼️ Oldest Wallpaper: {wp['name']} ({wp['id']})")
 download_file(wp["id"], os.path.join(tmp_dir, "wallpaper.jpg"))
 
-with open(os.path.join(tmp_dir, "wp_name.txt"), "w") as f:
-    f.write(os.path.splitext(wp["name"])[0])
+# Save the wallpaper ID so we can trash it LATER (only on success)
+with open(os.path.join(tmp_dir, "wp_id.txt"), "w") as f:
+    f.write(wp["id"])
 
-# ONE-TIME DOWNLOAD: Save scratches.mp4 into ./assets/scratches.mp4
+# Cache scratches.mp4
 if need_scratches:
     scr_files = []
     try:
@@ -102,7 +134,6 @@ if need_scratches:
         scr_files = scr_res.get("files", [])
     except Exception:
         pass
-
     if not scr_files:
         scr_res = service.files().list(
             q="name = 'scratches.mp4' and trashed=false",
@@ -110,37 +141,25 @@ if need_scratches:
             fields="files(id, name)"
         ).execute()
         scr_files = scr_res.get("files", [])
+    if scr_files:
+        download_file(scr_files[0]["id"], os.path.join(assets_dir, "scratches.mp4"))
 
-    if not scr_files:
-        raise RuntimeError("❌ scratches.mp4 not found in Google Drive!")
-
-    print(f"🎞️ Downloading scratches.mp4 ({scr_files[0]['id']}) to ./assets/scratches.mp4...")
-    download_file(scr_files[0]["id"], os.path.join(assets_dir, "scratches.mp4"))
-
-# ONE-TIME DOWNLOAD: Save spotify.png into ./assets/spotify.png
+# Cache spotify.png
 if need_spotify:
     spotify_dest = os.path.join(assets_dir, "spotify.png")
-    downloaded_spotify = False
     try:
-        print(f"🟢 Downloading spotify.png ({spotify_file_id}) to ./assets/spotify.png...")
         download_file(spotify_file_id, spotify_dest)
-        downloaded_spotify = True
     except Exception:
-        pass
-
-    if not downloaded_spotify:
         sp_res = service.files().list(
             q="name contains 'spotify' and mimeType contains 'image/' and trashed=false",
             pageSize=1,
             fields="files(id, name)"
         ).execute()
         sp_files = sp_res.get("files", [])
-        if not sp_files:
-            raise RuntimeError("❌ spotify.png not found in Google Drive! Upload spotify.png to ./assets/spotify.png or share it in Drive.")
-        print(f"🟢 Downloading {sp_files[0]['name']} ({sp_files[0]['id']}) to ./assets/spotify.png...")
-        download_file(sp_files[0]["id"], spotify_dest)
+        if sp_files:
+            download_file(sp_files[0]["id"], spotify_dest)
 
-# API CALL 2: List all audio files in ONE request
+# API CALL 2: Get Audio files
 aud_res = service.files().list(
     q=f"'{audio_folder}' in parents and (mimeType contains 'audio/' or name contains '.mp3') and trashed=false",
     pageSize=200,
@@ -152,7 +171,6 @@ if not audio_files:
     raise RuntimeError("❌ No audio files found in Google Drive folder!")
 
 random.shuffle(audio_files)
-
 total_duration = 0.0
 selected_paths = []
 
@@ -175,23 +193,19 @@ for idx, aud in enumerate(audio_files):
         total_duration += dur
         print(f"🎵 Added: {aud['name']} ({dur:.1f}s) | Running Total: {total_duration/60:.2f} mins")
         if total_duration >= min_dur:
-            print("✅ Reached target window (12–15 mins). Stopping downloads.")
             break
     else:
         os.remove(local_aud)
         if total_duration >= min_dur:
             break
 
-if not selected_paths:
-    raise RuntimeError("❌ Could not assemble audio tracks under 15 minutes.")
-
 with open(os.path.join(tmp_dir, "audio_list.txt"), "w") as list_file:
     for p in selected_paths:
         list_file.write(f"file '{p}'\n")
 EOF
 
-# --- 3. MERGE AUDIO & ADD 2s AUDIO FADE IN/OUT ---
-echo "🔊 Step 2: Merging selected audio tracks..."
+# --- 4. MERGE AUDIO ---
+echo "🔊 Step 2: Merging audio tracks..."
 RAW_AUDIO="$TMP_DIR/raw_audio.m4a"
 MERGED_AUDIO="$TMP_DIR/merged_audio.m4a"
 
@@ -205,12 +219,8 @@ ffmpeg -i "$RAW_AUDIO" \
   -af "afade=t=in:st=0:d=2,afade=t=out:st=${AUDIO_FADE_START}:d=2" \
   -c:a aac -b:a 128k "$MERGED_AUDIO" -y -loglevel error
 
-echo "⏱️ Final Merged Audio Duration: ${DURATION}s"
-
-# --- 4. RENDER 16:9 WALLPAPER + SCRATCHES + SPOTIFY LOGO + FADE IN/OUT ---
-echo "🎬 Step 3: Blending 16:9 wallpaper, scratches.mp4, top-left Spotify logo & fades..."
-
-# Intro is 8s so it covers the 2s video fade-in AND the Spotify logo (1s to 7s)
+# --- 5. RENDER VIDEO ---
+echo "🎬 Step 3: Blending visuals..."
 read INTRO_DUR MID_DUR NUM_MIDS OUTRO_DUR OUTRO_FADE_START <<< $(python3 -c "
 dur = float('$DURATION')
 intro = 8.0
@@ -221,7 +231,6 @@ fade_start = round(max(0.1, outro - 2.0), 2)
 print(f'{intro} {mid} {num_mids} {outro} {fade_start}')
 ")
 
-# Pre-render 15s of 16:9 cropped wallpaper blended with scratches.mp4 (0.2 opacity)
 BLENDED_MASTER="$TMP_DIR/blended_master.mp4"
 ffmpeg -loop 1 -framerate 24 -i "$TMP_DIR/wallpaper.jpg" \
   -stream_loop -1 -i "$ASSETS_DIR/scratches.mp4" -t 15 \
@@ -233,7 +242,6 @@ ffmpeg -loop 1 -framerate 24 -i "$TMP_DIR/wallpaper.jpg" \
 
 ENC_FLAGS="-c:v libx264 -profile:v high -level:v 4.0 -preset veryfast -crf 26 -maxrate 450k -bufsize 900k -r 24 -pix_fmt yuv420p -video_track_timescale 12288 -an"
 
-# 1. Intro segment (8s: 2s video fade-in + top-left Spotify logo fade-in at 1s and fade-out at 6s)
 ffmpeg -i "$BLENDED_MASTER" -loop 1 -framerate 24 -i "$ASSETS_DIR/spotify.png" \
   -filter_complex "\
     [0:v]fade=t=in:st=0:d=2[base];\
@@ -241,15 +249,9 @@ ffmpeg -i "$BLENDED_MASTER" -loop 1 -framerate 24 -i "$ASSETS_DIR/spotify.png" \
     [base][logo]overlay=x=30:y=30:enable='between(t,1,7)',format=yuv420p[outv]" \
   -map "[outv]" -t "$INTRO_DUR" $ENC_FLAGS "$TMP_DIR/intro.mp4" -y -loglevel error
 
-# 2. Middle loop segment (10s clean blended loop)
-ffmpeg -i "$BLENDED_MASTER" -t "$MID_DUR" \
-  $ENC_FLAGS "$TMP_DIR/middle.mp4" -y -loglevel error
+ffmpeg -i "$BLENDED_MASTER" -t "$MID_DUR" $ENC_FLAGS "$TMP_DIR/middle.mp4" -y -loglevel error
+ffmpeg -i "$BLENDED_MASTER" -t "$OUTRO_DUR" -vf "fade=t=out:st=${OUTRO_FADE_START}:d=2" $ENC_FLAGS "$TMP_DIR/outro.mp4" -y -loglevel error
 
-# 3. Outro segment (with 2s fade-out at the very end)
-ffmpeg -i "$BLENDED_MASTER" -t "$OUTRO_DUR" \
-  -vf "fade=t=out:st=${OUTRO_FADE_START}:d=2" $ENC_FLAGS "$TMP_DIR/outro.mp4" -y -loglevel error
-
-# Build concat list for the full video duration
 VIDEO_LIST="$TMP_DIR/video_list.txt"
 echo "file '$TMP_DIR/intro.mp4'" > "$VIDEO_LIST"
 for ((i=1; i<=NUM_MIDS; i++)); do
@@ -257,33 +259,60 @@ for ((i=1; i<=NUM_MIDS; i++)); do
 done
 echo "file '$TMP_DIR/outro.mp4'" >> "$VIDEO_LIST"
 
-WP_BASE=$(cat "$TMP_DIR/wp_name.txt" | tr -cd '[:alnum:]_-' | cut -c1-40)
-OUT_FILENAME="${WP_BASE:-ambient_video}.mp4"
+OUT_FILENAME="${SAFE_TITLE}.mp4"
 OUT_FILE="$OUTPUT_DIR/$OUT_FILENAME"
 
-# Stitch video segments + merged audio without re-encoding
 ffmpeg -f concat -safe 0 -i "$VIDEO_LIST" -i "$MERGED_AUDIO" \
   -map 0:v:0 -map 1:a:0 -c:v copy -c:a copy -t "$DURATION" \
   -movflags +faststart "$OUT_FILE" -y -loglevel warning
 
 echo "✅ Video created: $OUT_FILE ($(du -h "$OUT_FILE" | cut -f1))"
 
-# --- 5. SAVE TO GITHUB ./output AND ./assets FOLDERS ---
+# --- 6. SAVE TO GITHUB, TRASH WALLPAPER, & TRIGGER WEBHOOK ---
 if [ -f "$OUT_FILE" ]; then
-    echo "📤 Step 4: Saving ./assets and ./output to GitHub..."
-
+    echo "📤 Step 4: Saving to GitHub..."
     find "$OUTPUT_DIR" -type f ! -name "$OUT_FILENAME" -delete
+
+    CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
     if [ -n "$GITHUB_ACTIONS" ]; then
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
-
-        CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
         git add "$ASSETS_DIR" "$OUTPUT_DIR"
-        git commit -m "Update output video with Spotify logo & cache assets: $OUT_FILENAME" || git commit --amend --no-edit
+        git commit -m "Generated video: $SELECTED_TITLE" || git commit --amend --no-edit
         git push origin "$CURRENT_BRANCH" --force
+    fi
+
+    # Trash wallpaper in Google Drive since generation succeeded
+    echo "🗑️ Moving used wallpaper to Google Drive Trash..."
+    python3 - << 'EOF2'
+import os, json
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+
+wp_id = open(os.path.join(os.environ["TMP_DIR"], "wp_id.txt")).read().strip()
+sa_info = json.loads(os.environ["GDRIVE_SERVICE_ACCOUNT"])
+creds = service_account.Credentials.from_service_account_info(sa_info, scopes=["https://www.googleapis.com/auth/drive"])
+service = build("drive", "v3", credentials=creds)
+
+service.files().update(fileId=wp_id, body={'trashed': True}).execute()
+print("✅ Wallpaper trashed successfully.")
+EOF2
+
+    # Send Webhook
+    if [ -n "$WEBHOOK_URL" ]; then
+        echo "📡 Sending Webhook..."
+        RAW_URL="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${CURRENT_BRANCH}/output/${OUT_FILENAME}"
+        PAYLOAD=$(cat <<EOF3
+{
+  "fileUrl": "$RAW_URL",
+  "fileName": "$SELECTED_TITLE"
+}
+EOF3
+)
+        curl -L -X POST -H "Content-Type: application/json" -d "$PAYLOAD" "$WEBHOOK_URL"
+        echo -e "\n✅ Webhook Sent!"
     fi
 fi
 
 rm -rf "$TMP_DIR"
-echo "✨ Step 3 Complete!"
