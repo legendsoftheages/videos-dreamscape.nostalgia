@@ -1,0 +1,28 @@
+name: Generate Under-15m Video
+
+on:
+  workflow_dispatch: # Allows manual 1-click test runs in GitHub Actions
+
+permissions:
+  contents: write
+
+jobs:
+  build-video:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install FFmpeg & Python Google Drive Client
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y ffmpeg
+          pip install --quiet google-api-python-client google-auth
+
+      - name: Run Video Generator Script
+        env:
+          GDRIVE_SERVICE_ACCOUNT: ${{ secrets.GDRIVE_SERVICE_ACCOUNT }}
+          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+        run: |
+          chmod +x ./generate_video.sh
+          ./generate_video.sh
