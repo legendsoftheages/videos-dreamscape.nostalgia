@@ -17,50 +17,11 @@ export MAX_DURATION=890  # 14 minutes 50 seconds
 
 # --- 2. ASSET CHECK & RANDOM TITLE GENERATION ---
 if [ ! -f "$ASSETS_DIR/titles.txt" ]; then
-    echo "📝 Creating titles.txt with original and new poetic titles..."
-    cat << 'EOF' > "$ASSETS_DIR/titles.txt"
-Those moments felt endless
-Those days were golden
-Life felt gentle and bright
-Time moved like a dream
-Those days taught me love
-Old joys still shine
-Back then felt safe
-Some places feel like the past
-Childhood felt like magic
-Dreams felt bigger then
-Small things meant more
-Back then felt magic
-Life felt calm inside
-Old joys stay forever
-Old days still guide me
-Back then felt honest
-Those moments still glow
-Some faces stay in the heart
-Some days never fade
-Back then felt safer
-Back then felt colorful
-Some nights stay glowing
-Those laughs still ring
-Wish time slowed down
-Those talks lasted hours
-Old days hit the heart
-Memories linger in the dark
-Echoes of a quieter time
-Whispers from the past
-Shadows of golden hours
-When the world stood still
-Finding peace in memories
-Nostalgia hits deep
-Fading light brings comfort
-Where did the time go
-Longing for yesterday
-The quiet after the storm
-Stars looked brighter then
-EOF
+    echo "❌ Error: $ASSETS_DIR/titles.txt not found! Please create this file in your repository."
+    exit 1
 fi
 
-# Pick a completely random title (no tracking)
+# Pick a completely random title from the file
 SELECTED_TITLE=$(shuf -n 1 "$ASSETS_DIR/titles.txt")
 export SAFE_TITLE=$(echo "$SELECTED_TITLE" | tr ' ' '_')
 echo "🏷️ Selected Title: $SELECTED_TITLE -> $SAFE_TITLE.mp4"
@@ -283,7 +244,6 @@ if [ -f "$OUT_FILE" ]; then
         git push origin "$CURRENT_BRANCH" --force
     fi
 
-    # Trash wallpaper in Google Drive since generation succeeded
     echo "🗑️ Moving used wallpaper to Google Drive Trash..."
     python3 - << 'EOF2'
 import os, json
@@ -299,7 +259,6 @@ service.files().update(fileId=wp_id, body={'trashed': True}).execute()
 print("✅ Wallpaper trashed successfully.")
 EOF2
 
-    # Send Webhook
     if [ -n "$WEBHOOK_URL" ]; then
         echo "📡 Sending Webhook..."
         RAW_URL="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${CURRENT_BRANCH}/output/${OUT_FILENAME}"
