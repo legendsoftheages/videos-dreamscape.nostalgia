@@ -9,6 +9,7 @@ mkdir -p "$OUTPUT_DIR" "$ASSETS_DIR" "$TMP_DIR/audio"
 
 # Folder IDs from your Google Drive setup
 export WALLPAPER_FOLDER_ID="1xbZDP8HXOnfllya7t7120pnNccq5-7h7"
+export ARCHIVE_FOLDER_ID="190G9vBYRwQb4VqHGfmGExdjhH0phgA4t" # <--- ADD YOUR NEW ARCHIVE FOLDER ID HERE
 export AUDIO_FOLDER_ID="1cMseGL3iBVP6y28ouZBbyeVR6sWPtSid"
 export SCRATCHES_FOLDER_ID="1TcLn9ukWAdLCml0aYyPrtUcog3UnKnmn"
 export SPOTIFY_FILE_ID="1fIcEuSGsSBaRWO9OsFZYCTcynhMs7XOh"
@@ -21,7 +22,6 @@ if [ ! -f "$ASSETS_DIR/titles.txt" ]; then
     exit 1
 fi
 
-# Pick a completely random title from the file
 SELECTED_TITLE=$(shuf -n 1 "$ASSETS_DIR/titles.txt")
 export SAFE_TITLE=$(echo "$SELECTED_TITLE" | tr ' ' '_')
 echo "🏷️ Selected Title: $SELECTED_TITLE -> $SAFE_TITLE.mp4"
@@ -79,7 +79,6 @@ wp = wp_files[0]
 print(f"🖼️ Oldest Wallpaper: {wp['name']} ({wp['id']})")
 download_file(wp["id"], os.path.join(tmp_dir, "wallpaper.jpg"))
 
-# Save the wallpaper ID so we can trash it LATER (only on success)
 with open(os.path.join(tmp_dir, "wp_id.txt"), "w") as f:
     f.write(wp["id"])
 
@@ -229,7 +228,7 @@ ffmpeg -f concat -safe 0 -i "$VIDEO_LIST" -i "$MERGED_AUDIO" \
 
 echo "✅ Video created: $OUT_FILE ($(du -h "$OUT_FILE" | cut -f1))"
 
-# --- 6. SAVE TO GITHUB, TRASH WALLPAPER, & TRIGGER WEBHOOK ---
+# --- 6. SAVE TO GITHUB, ARCHIVE WALLPAPER, & TRIGGER WEBHOOK ---
 if [ -f "$OUT_FILE" ]; then
     echo "📤 Step 4: Saving to GitHub..."
     find "$OUTPUT_DIR" -type f ! -name "$OUT_FILENAME" -delete
@@ -244,20 +243,33 @@ if [ -f "$OUT_FILE" ]; then
         git push origin "$CURRENT_BRANCH" --force
     fi
 
-    echo "🗑️ Moving used wallpaper to Google Drive Trash..."
+    # MOVE TO ARCHIVE INSTEAD OF TRASH
+    echo "📦 Moving used wallpaper to Archive Folder..."
     python3 - << 'EOF2'
 import os, json
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
 wp_id = open(os.path.join(os.environ["TMP_DIR"], "wp_id.txt")).read().strip()
+archive_folder = os.environ["ARCHIVE_FOLDER_ID"]
+wallpaper_folder = os.environ["WALLPAPER_FOLDER_ID"]
+
 sa_info = json.loads(os.environ["GDRIVE_SERVICE_ACCOUNT"])
 creds = service_account.Credentials.from_service_account_info(sa_info, scopes=["https://www.googleapis.com/auth/drive"])
 service = build("drive", "v3", credentials=creds)
 
-service.files().update(fileId=wp_id, body={'trashed': True}).execute()
-print("✅ Wallpaper trashed successfully.")
+service.files().update(
+    fileId=wp_id,
+    addParents=archive_folder,
+    removeParents=wallpaper_folder,
+    fields='id, parents'
+).execute()
+print("✅ Wallpaper archived successfully.")
 EOF2
+
+    # Give GitHub's raw CDN 15 seconds to sync the new file before hitting Apps Script
+    echo "⏳ Waiting 15 seconds for GitHub CDN to sync..."
+    sleep 15
 
     if [ -n "$WEBHOOK_URL" ]; then
         echo "📡 Sending Webhook..."
@@ -265,7 +277,7 @@ EOF2
         PAYLOAD=$(cat <<EOF3
 {
   "fileUrl": "$RAW_URL",
-  "fileName": "$SELECTED_TITLE"
+  "fileName": "$SELECTED_TITLE.mp4"
 }
 EOF3
 )
