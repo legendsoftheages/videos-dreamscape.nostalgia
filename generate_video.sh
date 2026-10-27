@@ -8,10 +8,10 @@ export ASSETS_DIR="./assets"
 mkdir -p "$OUTPUT_DIR" "$ASSETS_DIR" "$TMP_DIR/audio"
 
 # Folder IDs from your Google Drive setup
-export WALLPAPER_FOLDER_ID="1xbZDP8HXOnfllya7t7120pnNccq5-7h7"
+export WALLPAPER_FOLDER_ID="1-_AWfRgjAYYpILzhd3RyiEN-L7ZLc9Dg"
 export ARCHIVE_FOLDER_ID="190G9vBYRwQb4VqHGfmGExdjhH0phgA4t" # <--- ADD YOUR NEW ARCHIVE FOLDER ID HERE
 export AUDIO_FOLDER_ID="1cMseGL3iBVP6y28ouZBbyeVR6sWPtSid"
-export SCRATCHES_FOLDER_ID="1TcLn9ukWAdLCml0aYyPrtUcog3UnKnmn"
+export SCRATCHES_FOLDER_ID="1KFVM3On0ELnMAqbpaJbNdlLeI12V9Ln0"
 export SPOTIFY_FILE_ID="1fIcEuSGsSBaRWO9OsFZYCTcynhMs7XOh"
 export MIN_DURATION=720  # 12 minutes
 export MAX_DURATION=890  # 14 minutes 50 seconds
